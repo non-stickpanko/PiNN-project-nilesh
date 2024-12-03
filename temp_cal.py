@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 import tensorflow as tf
 import numpy as np
 import pandas as pd
@@ -122,7 +121,6 @@ plt.title("Voltage vs Temperature (Ground Truth vs Predicted)")
 plt.legend()
 plt.grid(True)
 plt.show()
-=======
 import tensorflow as tf
 import numpy as np
 import matplotlib.pyplot as plt
@@ -237,4 +235,3 @@ plt.title("Voltage vs Temperature (Ground Truth vs Predicted)")
 plt.legend()
 plt.grid(True)
 plt.show()
->>>>>>> a9cbf58c4e25b0bd0d4e01defccaf3349f43bf27
