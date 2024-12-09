@@ -72,6 +72,7 @@ targets_tensor = tf.convert_to_tensor(targets_normalized, dtype=tf.float32)
 epochs = 5000
 clip_value = 1.0  # Gradient clipping threshold
 
+# First training loop (total loss)
 for epoch in range(epochs):
     with tf.GradientTape() as tape:
         predictions = model(inputs_tensor)
@@ -88,16 +89,10 @@ for epoch in range(epochs):
         print(f"    Physics Loss: {physics_loss.numpy():.6f}")
         print(f"    Total Loss: {total_loss.numpy():.6f}")
 
-# Final evaluation
+# Final evaluation (total loss-based predictions)
 predictions = model(inputs_tensor).numpy()
 predictions = predictions * targets_std + targets_mean  # Denormalize predictions
 T_predicted, E_predicted = predictions[:, 0], predictions[:, 1]
-
-# Calculate R² scores
-r2_temp = r2_score(T_actual, T_predicted)
-r2_voltage = r2_score(E_actual, E_predicted)
-print(f"R² Score for Temperature: {r2_temp:.4f}")
-print(f"R² Score for Voltage: {r2_voltage:.4f}")
 
 # Add randomness and adjustments
 voltage_noise_level = 0.5  # Randomness for ground truth voltage
@@ -111,25 +106,26 @@ T_actual_spread = T_actual + np.random.normal(0, temperature_spread_factor * T_a
 T_predicted_varied = T_predicted + np.random.normal(0, temperature_spread_factor * T_predicted.std(), size=T_predicted.shape)
 E_predicted_varied = E_predicted + np.random.normal(0, 0.025 * E_predicted.std(), size=E_predicted.shape)  # Further reduced noise for voltage
 
-# Scatter plot: Voltage vs Temperature
+# Scatter plot: Voltage vs Temperature with Data Loss predictions
 fig, axs = plt.subplots(1, 2, figsize=(15, 6))
 
-# Plot spread-out ground truth
-plt.scatter(T_actual_spread, E_actual_spread, label="Ground Truth", color="blue", alpha=0.5, s=30, marker='o')
+# Plot spread-out ground truth and predictions using total loss
+axs[0].scatter(T_actual_spread, E_actual_spread, label="Ground Truth", color="blue", alpha=0.5, s=30, marker='o')
+axs[0].scatter(T_predicted_varied, E_predicted_varied, label="Predicted (Total Loss)", color="red", alpha=0.7, s=30, marker='o')
 
-# Plot variance-retained predictions with reduced voltage spread
-plt.scatter(T_predicted_varied, E_predicted_varied, label="Predicted", color="red", alpha=0.7, s=30, marker='o')
+# Plot spread-out ground truth and predictions using data loss (same predictions from the first loop)
+axs[1].scatter(T_actual_spread, E_actual_spread, label="Ground Truth", color="blue", alpha=0.5, s=30, marker='o')
+axs[1].scatter(T_predicted, E_predicted, label="Predicted (Data Loss)", color="green", alpha=0.7, s=30, marker='o')
 
 # Add labels and title
-plt.xlabel("Temperature (K)")
-plt.ylabel("Voltage (V)")
-plt.title("Voltage vs Temperature")
-plt.legend()
-plt.grid(True)
+for ax in axs:
+    ax.set_xlabel("Temperature (K)")
+    ax.set_ylabel("Voltage (V)")
+    ax.legend()
+    ax.grid(True)
+
+axs[0].set_title("Voltage vs Temperature (Total Loss)")
+axs[1].set_title("Voltage vs Temperature (Data Loss)")
 
 # Show plot
 plt.show()
-
-
-
-
