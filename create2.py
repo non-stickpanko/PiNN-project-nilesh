@@ -32,3 +32,16 @@ data = pd.DataFrame({
     "E_actual": E_actual
 })
 data.to_csv("dataset2.csv", index=False)
+
+import matplotlib.pyplot as plt
+
+# Scatter plot of Temperature vs Voltage
+plt.figure(figsize=(8, 6))
+plt.scatter(T_actual, E_actual, color='blue', alpha=0.6, label="Data points")
+plt.xlabel('Temperature (K)')
+plt.ylabel('Voltage (V)')
+plt.title('Temperature vs Voltage')
+plt.legend()
+plt.grid(True)
+plt.show()
+

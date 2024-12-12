@@ -19,7 +19,11 @@ q = 1.6e-19  # Elementary charge (C)
 z = 1  # Charge number for monovalent ions
 
 # Load dataset from file
-data = pd.read_csv("dataset2.csv")
+data = pd.read_csv("dataset_with_missing.csv")
+
+# Handling missing values: Fill NaNs with column means
+data.fillna(data.mean(), inplace=True)
+
 a_actual = data["a_actual"].values
 E_0_actual = data["E_0_actual"].values
 T_actual = data["T_actual"].values
@@ -107,7 +111,7 @@ for epoch in range(epochs):
 predictions_total_loss = model(inputs_tensor)
 
 # Denormalize predictions
-# predictions_total_loss_denormalized = predictions_total_loss.numpy() * targets_std + targets_mean
+predictions_total_loss_denormalized = predictions_total_loss.numpy() * targets_std + targets_mean
 
 # Compute R² score
 r2_total_loss = r2_score(targets, predictions_total_loss_denormalized)
@@ -115,22 +119,27 @@ r2_total_loss = r2_score(targets, predictions_total_loss_denormalized)
 # Print R² value
 print(f"R² for Total Loss Predictions: {r2_total_loss:.6f}")
 
+print("Predicted range: ", np.min(predictions_total_loss_denormalized), np.max(predictions_total_loss_denormalized))
+print("Actual range: ", np.min(E_actual), np.max(E_actual))
+
 # Scatter plot: Voltage vs Temperature for Total Loss
 plt.figure(figsize=(10, 6))
 
 # Add small random noise to predictions to spread out the points
-noise_factor = 0.01  # Adjust this value to control how much the points are spread out
+noise_factor = 0.001  # Adjust this value to control how much the points are spread out
 predictions_noisy = predictions_total_loss_denormalized + noise_factor * np.random.randn(*predictions_total_loss_denormalized.shape)
 
 plt.scatter(T_actual, E_actual, label="Ground Truth", color="blue", alpha=0.5, s=10)
 plt.scatter(predictions_noisy[:, 0], predictions_noisy[:, 1],
-            label="Predicted (Total Loss)", color="red", alpha=0.7, s=10)
+            label="Predicted (Total Loss)", color="red", alpha=0.1, s=10)
+
 
 plt.xlabel("Temperature (K)")
 plt.ylabel("Voltage (V)")
 plt.legend()
 plt.grid(True)
 plt.title("Voltage vs Temperature (Total Loss)")
+plt.gca().set_aspect('equal', adjustable='box')
 
 # Show plot
 plt.show()
