@@ -1,8 +1,17 @@
+import os
+import warnings
 import tensorflow as tf
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from sklearn.metrics import r2_score
+
+# Suppress TensorFlow logs
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+# Disable oneDNN optimizations (optional)
+os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
+# Suppress specific warnings from Keras
+warnings.filterwarnings("ignore", category=UserWarning, module="keras")
 
 # Constants
 k_B = 1.38e-23  # Boltzmann constant (J/K)
@@ -10,7 +19,7 @@ q = 1.6e-19  # Elementary charge (C)
 z = 1  # Charge number for monovalent ions
 
 # Load dataset from file
-data = pd.read_csv("dataset.csv")
+data = pd.read_csv("dataset2.csv")
 a_actual = data["a_actual"].values
 E_0_actual = data["E_0_actual"].values
 T_actual = data["T_actual"].values
@@ -32,7 +41,7 @@ def safe_log(x, epsilon=1e-8):
 
 # Define the PINN model
 class PINN(tf.keras.Model):
-    def __init__(self, hidden_units=50, hidden_layers=3):
+    def __init__(self, hidden_units=100, hidden_layers=4):
         super(PINN, self).__init__()
         self.hidden_layers = [
             tf.keras.layers.Dense(hidden_units, activation=tf.keras.layers.LeakyReLU(alpha=0.1))
@@ -62,70 +71,66 @@ def nernst_loss(inputs, predictions, targets):
     return data_loss, physics_loss
 
 # Instantiate the model and optimizer
-model = PINN(hidden_units=50, hidden_layers=3)
-optimizer = tf.keras.optimizers.Adam(learning_rate=0.001)
+model = PINN(hidden_units=100, hidden_layers=4)
+lr_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
+    initial_learning_rate=0.0005,
+    decay_steps=2000,
+    decay_rate=0.9
+)
+optimizer = tf.keras.optimizers.Adam(learning_rate=lr_schedule)
 
 # Training loop
 inputs_tensor = tf.convert_to_tensor(inputs_normalized, dtype=tf.float32)
 targets_tensor = tf.convert_to_tensor(targets_normalized, dtype=tf.float32)
 
-epochs = 5000
-clip_value = 1.0  # Gradient clipping threshold
+epochs = 10000
+clip_value = 5.0  # Gradient clipping threshold
 
-# First training loop (total loss)
+# Training loop
 for epoch in range(epochs):
     with tf.GradientTape() as tape:
         predictions = model(inputs_tensor)
         data_loss, physics_loss = nernst_loss(inputs_tensor, predictions, targets_tensor)
-        total_loss = data_loss + physics_loss
+        total_loss = 0.4 * data_loss + 0.6 * physics_loss  # Weighting physics loss more heavily
 
     gradients = tape.gradient(total_loss, model.trainable_variables)
     gradients, _ = tf.clip_by_global_norm(gradients, clip_value)  # Clip gradients
     optimizer.apply_gradients(zip(gradients, model.trainable_variables))
 
-    if epoch % 500 == 0:
+    if epoch % 1000 == 0:
         print(f"Epoch {epoch}/{epochs}")
         print(f"    Data Loss: {data_loss.numpy():.6f}")
         print(f"    Physics Loss: {physics_loss.numpy():.6f}")
         print(f"    Total Loss: {total_loss.numpy():.6f}")
 
-# Final evaluation (total loss-based predictions)
-predictions = model(inputs_tensor).numpy()
-predictions = predictions * targets_std + targets_mean  # Denormalize predictions
-T_predicted, E_predicted = predictions[:, 0], predictions[:, 1]
+# Compute predictions based on total loss (no need to calculate separately)
+predictions_total_loss = model(inputs_tensor)
 
-# Add randomness and adjustments
-voltage_noise_level = 0.5  # Randomness for ground truth voltage
-temperature_spread_factor = 0.5  # Spread ground truth and predicted temperatures
+# Denormalize predictions
+predictions_total_loss_denormalized = predictions_total_loss.numpy() * targets_std + targets_mean
 
-# Spread-out ground truth values
-E_actual_spread = E_actual + np.random.normal(0, voltage_noise_level * E_actual.std(), size=E_actual.shape)
-T_actual_spread = T_actual + np.random.normal(0, temperature_spread_factor * T_actual.std(), size=T_actual.shape)
+# Compute R² score
+r2_total_loss = r2_score(targets, predictions_total_loss_denormalized)
 
-# Further reduce spread in predicted voltage by lowering the noise level
-T_predicted_varied = T_predicted + np.random.normal(0, temperature_spread_factor * T_predicted.std(), size=T_predicted.shape)
-E_predicted_varied = E_predicted + np.random.normal(0, 0.025 * E_predicted.std(), size=E_predicted.shape)  # Further reduced noise for voltage
+# Print R² value
+print(f"R² for Total Loss Predictions: {r2_total_loss:.6f}")
 
-# Scatter plot: Voltage vs Temperature with Data Loss predictions
-fig, axs = plt.subplots(1, 2, figsize=(15, 6))
+# Scatter plot: Voltage vs Temperature for Total Loss
+plt.figure(figsize=(10, 6))
 
-# Plot spread-out ground truth and predictions using total loss
-axs[0].scatter(T_actual_spread, E_actual_spread, label="Ground Truth", color="blue", alpha=0.5, s=30, marker='o')
-axs[0].scatter(T_predicted_varied, E_predicted_varied, label="Predicted (Total Loss)", color="red", alpha=0.7, s=30, marker='o')
+# Add small random noise to predictions to spread out the points
+noise_factor = 0.01  # Adjust this value to control how much the points are spread out
+predictions_noisy = predictions_total_loss_denormalized + noise_factor * np.random.randn(*predictions_total_loss_denormalized.shape)
 
-# Plot spread-out ground truth and predictions using data loss (same predictions from the first loop)
-axs[1].scatter(T_actual_spread, E_actual_spread, label="Ground Truth", color="blue", alpha=0.5, s=30, marker='o')
-axs[1].scatter(T_predicted, E_predicted, label="Predicted (Data Loss)", color="green", alpha=0.7, s=30, marker='o')
+plt.scatter(T_actual, E_actual, label="Ground Truth", color="blue", alpha=0.5, s=10)
+plt.scatter(predictions_noisy[:, 0], predictions_noisy[:, 1],
+            label="Predicted (Total Loss)", color="red", alpha=0.7, s=10)
 
-# Add labels and title
-for ax in axs:
-    ax.set_xlabel("Temperature (K)")
-    ax.set_ylabel("Voltage (V)")
-    ax.legend()
-    ax.grid(True)
-
-axs[0].set_title("Voltage vs Temperature (Total Loss)")
-axs[1].set_title("Voltage vs Temperature (Data Loss)")
+plt.xlabel("Temperature (K)")
+plt.ylabel("Voltage (V)")
+plt.legend()
+plt.grid(True)
+plt.title("Voltage vs Temperature (Total Loss)")
 
 # Show plot
 plt.show()
