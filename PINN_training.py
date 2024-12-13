@@ -91,6 +91,9 @@ epochs = 10000
 clip_value = 5.0  # Gradient clipping threshold
 epoch_data = []  # To store loss values for plotting later
 
+# Define a list to store loss values for each epoch
+losses_by_epoch = []
+
 # Training loop
 for epoch in range(epochs):
     with tf.GradientTape() as tape:
@@ -108,6 +111,14 @@ for epoch in range(epochs):
         print(f"    Data Loss: {data_loss.numpy():.6f}")
         print(f"    Physics Loss: {physics_loss.numpy():.6f}")
         print(f"    Total Loss: {total_loss.numpy():.6f}")
+
+    # Append loss values to the list for every epoch
+    losses_by_epoch.append([epoch, data_loss.numpy(), total_loss.numpy()])
+
+# Save the loss values to a CSV file
+losses_df = pd.DataFrame(losses_by_epoch, columns=['Epoch', 'Data Loss', 'Total Loss'])
+losses_df.to_csv('loss_values_by_epoch.csv', index=False)
+print("Loss values by epoch saved to 'loss_values_by_epoch.csv'.")
 
 # Compute predictions based on total loss (no need to calculate separately)
 predictions_total_loss = model(inputs_tensor)
