@@ -3,7 +3,6 @@ import warnings
 import tensorflow as tf
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
 from sklearn.metrics import r2_score
 
 # Suppress TensorFlow logs
@@ -25,15 +24,20 @@ E_0_actual = data["E_0_actual"].values
 T_actual = data["T_actual"].values
 E_actual = data["E_actual"].values
 
-# Normalize inputs and targets
+# Normalize both temperature and voltage
 inputs = np.stack([a_actual, E_0_actual], axis=1)
 targets = np.stack([T_actual, E_actual], axis=1)
 
 inputs_mean, inputs_std = inputs.mean(axis=0), inputs.std(axis=0)
-targets_mean, targets_std = targets.mean(axis=0), targets.std(axis=0)
+T_mean, T_std = T_actual.mean(), T_actual.std()  # Mean and std for temperature only
+E_mean, E_std = E_actual.mean(), E_actual.std()  # Mean and std for voltage
 
 inputs_normalized = (inputs - inputs_mean) / inputs_std
-targets_normalized = (targets - targets_mean) / targets_std
+T_normalized = (T_actual - T_mean) / T_std  # Normalize temperature
+E_normalized = (E_actual - E_mean) / E_std  # Normalize voltage
+
+# Combine the normalized targets
+targets_normalized = np.stack([T_normalized, E_normalized], axis=1)
 
 # Safe log to avoid NaNs
 def safe_log(x, epsilon=1e-8):
@@ -85,6 +89,7 @@ targets_tensor = tf.convert_to_tensor(targets_normalized, dtype=tf.float32)
 
 epochs = 10000
 clip_value = 5.0  # Gradient clipping threshold
+epoch_data = []  # To store loss values for plotting later
 
 # Training loop
 for epoch in range(epochs):
@@ -98,6 +103,7 @@ for epoch in range(epochs):
     optimizer.apply_gradients(zip(gradients, model.trainable_variables))
 
     if epoch % 1000 == 0:
+        epoch_data.append([epoch, data_loss.numpy(), physics_loss.numpy(), total_loss.numpy()])
         print(f"Epoch {epoch}/{epochs}")
         print(f"    Data Loss: {data_loss.numpy():.6f}")
         print(f"    Physics Loss: {physics_loss.numpy():.6f}")
@@ -106,31 +112,36 @@ for epoch in range(epochs):
 # Compute predictions based on total loss (no need to calculate separately)
 predictions_total_loss = model(inputs_tensor)
 
-# Denormalize predictions
-# predictions_total_loss_denormalized = predictions_total_loss.numpy() * targets_std + targets_mean
+# Denormalize predictions (both temperature and voltage)
+predictions_total_loss_denormalized = predictions_total_loss.numpy()
+predictions_total_loss_denormalized[:, 0] = predictions_total_loss[:, 0] * T_std + T_mean  # Denormalize temperature
+predictions_total_loss_denormalized[:, 1] = predictions_total_loss[:, 1] * E_std + E_mean  # Denormalize voltage
 
-# Compute R² score
-r2_total_loss = r2_score(targets, predictions_total_loss_denormalized)
+# Clip the predicted voltage values to be within the range [0.4, 1.0]
+predictions_total_loss_denormalized[:, 1] = np.clip(predictions_total_loss_denormalized[:, 1], 0.4, 1.0)
 
-# Print R² value
-print(f"R² for Total Loss Predictions: {r2_total_loss:.6f}")
+# Check range of predicted values
+print("Predicted Temperature Range: ", np.min(predictions_total_loss_denormalized[:, 0]), np.max(predictions_total_loss_denormalized[:, 0]))
+print("Predicted Voltage Range: ", np.min(predictions_total_loss_denormalized[:, 1]), np.max(predictions_total_loss_denormalized[:, 1]))
 
-# Scatter plot: Voltage vs Temperature for Total Loss
-plt.figure(figsize=(10, 6))
+# Save the predictions and actual values in a CSV file
+results_df = pd.DataFrame({
+    'Actual Temperature': targets[:, 0],
+    'Actual Voltage': targets[:, 1],
+    'Predicted Temperature': predictions_total_loss_denormalized[:, 0],
+    'Predicted Voltage': predictions_total_loss_denormalized[:, 1]
+})
 
-# Add small random noise to predictions to spread out the points
-noise_factor = 0.01  # Adjust this value to control how much the points are spread out
-predictions_noisy = predictions_total_loss_denormalized + noise_factor * np.random.randn(*predictions_total_loss_denormalized.shape)
+results_df.to_csv('predictions_and_actual_values.csv', index=False)
+print("Data saved to 'predictions_and_actual_values.csv'.")
 
-plt.scatter(T_actual, E_actual, label="Ground Truth", color="blue", alpha=0.5, s=10)
-plt.scatter(predictions_noisy[:, 0], predictions_noisy[:, 1],
-            label="Predicted (Total Loss)", color="red", alpha=0.7, s=10)
+# Save the normalized and unnormalized values in another CSV file
+normalized_and_unnormalized_df = pd.DataFrame({
+    'Normalized Temperature': T_normalized,
+    'Normalized Voltage': E_normalized,
+    'Predicted Voltage (Before Denormalization)': predictions_total_loss[:, 1],  # Predicted voltage before denormalization
+    'Predicted Temperature (Before Denormalization)': predictions_total_loss[:, 0]  # Predicted temperature before denormalization
+})
 
-plt.xlabel("Temperature (K)")
-plt.ylabel("Voltage (V)")
-plt.legend()
-plt.grid(True)
-plt.title("Voltage vs Temperature (Total Loss)")
-
-# Show plot
-plt.show()
+normalized_and_unnormalized_df.to_csv('normalised_values.csv', index=False)
+print("Normalized and unnormalized data saved to 'normalised_values.csv'.")
